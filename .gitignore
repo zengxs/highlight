@@ -235,3 +235,9 @@ dmypy.json
 
 # Cython debug symbols
 cython_debug/
+
+
+###
+# Custom
+###
+!assets/Packages
