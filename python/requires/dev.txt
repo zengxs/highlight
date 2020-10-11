@@ -1,0 +1,4 @@
+-r testing.txt
+black>=20.8b1
+flake8>=3.8.4
+wheel>=0.35.1
