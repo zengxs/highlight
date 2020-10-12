@@ -1,4 +1,5 @@
 import os
+from glob import glob
 from pathlib import Path
 
 from setuptools import setup
@@ -18,4 +19,7 @@ setup(
     install_requires=requires,
     setup_requires=["cffi>=1.0.0"],
     cffi_modules=["python/onig_build.py:ffibuilder"],
+    package_data={
+        "hlkit": glob("assets/**/*.sublime-syntax", recursive=True),
+    },
 )

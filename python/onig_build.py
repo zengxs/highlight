@@ -2,8 +2,7 @@ import os
 
 from cffi import FFI
 
-BASE_DIR = os.path.dirname(__file__)
-ONIG_DIR = os.path.join(BASE_DIR, "..", "swift", "Sources", "COnig")
+ONIG_DIR = "./swift/Sources/COnig"  # relative path for `setup.py`
 
 
 def get_c_filepath(filename):
