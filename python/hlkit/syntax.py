@@ -1,9 +1,129 @@
-from typing import Dict, Optional, Sequence, Union
+import re
+import weakref
+from abc import ABCMeta
+from typing import Dict, List, Optional, Union
 
 
-class SyntaxMatchPattern(object):
+def obj_proxy(obj):
+    if isinstance(obj, weakref.ProxyType):
+        return obj
+    else:
+        return weakref.proxy(obj)
+
+
+class MatchRegex(object):
+    """
+    Expandable regex
+      used by
+      - first_line_match
+      - MatchPattern
+    """
+
+    syndef: "SyntaxDefinition"
+
+    _regex: str
+
+    def __init__(self, syndef, regex: str):
+        self.syndef = obj_proxy(syndef)
+        self._regex = regex
+
+    @classmethod
+    def create(cls, syndef, regex):
+        if regex is None:
+            return None
+        return cls(syndef, regex)
+
+    def __str__(self) -> str:
+        """ Computed regex string """
+        return self._expand(self._regex)
+
+    EXPAND_RE = re.compile(r"{{([A-Za-z0-9_]+)}}")
+
+    def _expand(self, regex: str) -> str:
+        """ variables expanded (recursive) """
+        match = re.search(self.EXPAND_RE, regex)
+
+        while match is not None:  # for multiple variables expansion
+            if match is None:
+                return regex
+
+            var_name = match.group(1)
+            var_value = self.syndef.variables[var_name]
+            var_value = self._expand(var_value)  # variable expand
+
+            regex = regex.replace("{{%s}}" % var_name, var_value)
+
+            match = re.search(self.EXPAND_RE, regex)
+
+        return regex
+
+
+class MatchAction(metaclass=ABCMeta):
+    pass
+
+
+class IntoContextAction(MatchAction):
+    pat_ref: "SyntaxPattern"
+
+    # nested context
+    _synctx: "SyntaxContext"
+
+    # name ref context
+    _ctxname: str
+
+    def __init__(self, pattern, synctx):
+        self.pat_ref = obj_proxy(pattern)
+        if isinstance(synctx, str):
+            self._ctxname = synctx
+        elif isinstance(synctx, SyntaxContext):
+            self._synctx = synctx
+        else:
+            raise ValueError
+
+    @property
+    def context(self) -> "SyntaxContext":
+        """ get ref synctx """
+        synctx = getattr(self, "_syntax", None)
+        if isinstance(synctx, SyntaxContext):
+            return synctx
+
+        ctx_name = getattr(self, "_ctxname", None)
+        if isinstance(ctx_name, str):
+            return obj_proxy(self.pat_ref.synctx.syndef[ctx_name])
+
+
+class PushAction(IntoContextAction):
+    pass
+
+
+class SetAction(IntoContextAction):
+    pass
+
+
+class PopAction(MatchAction):
+    pass
+
+
+class SyntaxPattern(metaclass=ABCMeta):
+    synctx: "SyntaxContext"  # ProxyType
+
+    def __init__(self, synctx):
+        self.synctx = obj_proxy(synctx)
+
+
+class IncludePattern(SyntaxPattern):
+    name: str
+
+    @classmethod
+    def from_dict(cls, synctx, data: Dict):
+        p = cls(synctx)
+        p.name = data.get("include")
+        return p
+
+
+class MatchPattern(SyntaxPattern):
     # 匹配的正则表达式
-    match: str
+    match: MatchRegex
 
     # 为匹配的文本附加的 scope
     scope: Optional[str]
@@ -11,70 +131,65 @@ class SyntaxMatchPattern(object):
     # `match` 的正则捕获分组，为不同分组赋予不同的 scope
     captures: Optional[Dict[int, str]]
 
-    # 推出当前 context
-    pop: Optional[bool]
-
-    # `push` 是一个 context 的名字，用于将这个 context 推入栈中
-    push: Optional[Union[str, "SyntaxContext"]]
-
-    # `set` 是一个 context 的名字，作用与 `push` 类似，但是它会现将当前的 context 推出
-    set: Optional[Union[str, "SyntaxContext"]]
+    # 匹配到该 pattern 时的动作
+    action: Optional[MatchAction]
 
     @classmethod
-    def from_dict(cls, data: Dict) -> "SyntaxMatchPattern":
-        p = cls()
+    def from_dict(cls, synctx, data: Dict) -> "MatchPattern":
+        p = cls(synctx)
 
-        p.match = data.get("match")
+        p.match = MatchRegex.create(synctx.syndef, data["match"])
         p.scope = data.get("scope")
         p.captures = data.get("captures")
-        p.pop = data.get("pop", False)
-        p.push = cls.ctx_name_or_nested(data.get("push"))
-        p.set = cls.ctx_name_or_nested(data.get("set"))
+        p.setup_action(data)
 
         return p
 
-    @staticmethod
-    def ctx_name_or_nested(
-        data: Optional[Union[str, Dict]],
-    ) -> Optional[Union[str, "SyntaxContext"]]:
+    def setup_action(self, data: Dict):
         """
-        Get context name for push/set or nested context object
+        setup action object
         """
-        if data is None:
-            return None
-        if isinstance(data, str):
-            return data
-        if isinstance(data, list):
-            return SyntaxContext.from_dict(data)
+        self.action = None
 
-        raise ValueError(data)  # FIXME
+        def get_nested_ctx(action_data):
+            return SyntaxContext.from_dict(self.synctx.syndef, action_data)
 
+        push_data = data.get("push")
+        if isinstance(push_data, str):
+            self.action = PushAction(self, push_data)
+        elif isinstance(push_data, list):
+            self.action = PushAction(self, get_nested_ctx(push_data))
 
-class SyntaxIncludePattern(object):
-    # 包含的 context 的名字
-    name: str
+        set_data = data.get("set")
+        if isinstance(set_data, str):
+            self.action = SetAction(self, set_data)
+        elif isinstance(set_data, list):
+            self.action = SetAction(self, get_nested_ctx(set_data))
 
-    @classmethod
-    def from_dict(cls, data: Dict):
-        p = cls()
-
-        p.name = data.get("include")
-
-        return p
+        if "pop" in data.keys() and data.get("pop") is True:
+            self.action = PopAction()
 
 
 class SyntaxContext(object):
-    meta_scope: str
-    meta_content_scope: str
+    syndef: "SyntaxDefinition"  # ProxyType
+
+    meta_scope: Optional[str]
+    meta_content_scope: Optional[str]
     meta_include_prototype: bool
     clear_scopes: Union[int, bool]
+    patterns: List[SyntaxPattern]
 
-    patterns: Sequence[Union[SyntaxMatchPattern, SyntaxIncludePattern]]
+    def __init__(self, syndef: "SyntaxDefinition"):
+        self.syndef = obj_proxy(syndef)
 
     @classmethod
-    def from_dict(cls, data: Sequence[Dict]):
-        ctx = cls()
+    def from_dict(cls, syndef, data: List[Dict]):
+        ctx = cls(syndef)
         ctx.patterns = []
+
+        # set defaults
+        ctx.meta_include_prototype = True
+        ctx.clear_scopes = False
 
         for item in data:
             # TODO: 验证数据类型
@@ -89,21 +204,27 @@ class SyntaxContext(object):
                 ctx.clear_scopes = item.get("clear_scopes")
             # include patterns
             elif "include" in item:
-                ctx.patterns.append(SyntaxIncludePattern.from_dict(item))
+                ctx.patterns.append(IncludePattern.from_dict(ctx, item))
             elif "match" in item:
-                ctx.patterns.append(SyntaxMatchPattern.from_dict(item))
+                ctx.patterns.append(MatchPattern.from_dict(ctx, item))
             else:
                 raise ValueError  # FIXME
 
         return ctx
 
+    def __getitem__(self, index: int):
+        return self.patterns[index]
+
 
 class SyntaxDefinition(object):
     name: str
-    file_extensions: Sequence[str]
+    file_extensions: List[str]
+    first_line_match: Optional[MatchRegex]
+
     scope: Optional[str]
 
-    contexts: Sequence[SyntaxContext]
+    variables: Dict[str, str]
+    contexts: List[SyntaxContext]
 
     # mapping from context name to index
     _context_names: Dict[str, int]
@@ -121,7 +242,13 @@ class SyntaxDefinition(object):
         # TODO: validate data type
         obj.name = data.get("name")
         obj.file_extensions = data.get("file_extensions")
+        obj.variables = data.get("variables", dict())
         obj.scope = data.get("scope")
+
+        obj.first_line_match = MatchRegex.create(
+            obj,
+            data.get("first_line_match"),
+        )
 
         # initial
         obj.contexts = list()
@@ -131,7 +258,7 @@ class SyntaxDefinition(object):
 
         # import contexts
         for ctx_name, ctx_data in data.get("contexts", {}).items():
-            ctx = SyntaxContext.from_dict(ctx_data)
+            ctx = SyntaxContext.from_dict(obj, ctx_data)
             obj.contexts.append(ctx)
             ctx_index = len(obj.contexts) - 1
             obj._context_names[ctx_name] = ctx_index
@@ -142,3 +269,7 @@ class SyntaxDefinition(object):
                 obj._ctx_prototype = ctx_index
 
         return obj
+
+    def __getitem__(self, key: str) -> SyntaxContext:
+        index = self._context_names[key]
+        return self.contexts[index]
