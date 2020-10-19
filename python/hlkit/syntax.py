@@ -83,7 +83,7 @@ class IntoContextAction(MatchAction):
     @property
     def context(self) -> "SyntaxContext":
         """ get ref synctx """
-        synctx = getattr(self, "_syntax", None)
+        synctx = getattr(self, "_synctx", None)
         if isinstance(synctx, SyntaxContext):
             return synctx
 
@@ -119,6 +119,10 @@ class IncludePattern(SyntaxPattern):
         p = cls(synctx)
         p.name = data.get("include")
         return p
+
+    @property
+    def context(self) -> "SyntaxContext":
+        return self.synctx.syndef[self.name]
 
 
 class MatchPattern(SyntaxPattern):
@@ -185,11 +189,13 @@ class SyntaxContext(object):
     @classmethod
     def from_dict(cls, syndef, data: List[Dict]):
         ctx = cls(syndef)
-        ctx.patterns = []
 
         # set defaults
+        ctx.meta_scope = None
+        ctx.meta_content_scope = None
         ctx.meta_include_prototype = True
         ctx.clear_scopes = False
+        ctx.patterns = []
 
         for item in data:
             # TODO: 验证数据类型
@@ -229,11 +235,17 @@ class SyntaxDefinition(object):
     # mapping from context name to index
     _context_names: Dict[str, int]
 
-    # index of prototype context
-    _ctx_prototype: Optional[int]
+    @property
+    def ctx_main(self) -> SyntaxContext:
+        return obj_proxy(self["main"])
 
-    # index of main context
-    _ctx_main: int
+    @property
+    def prototype_patterns(self) -> List[SyntaxPattern]:
+        try:
+            prototype_ctx = self["prototype"]
+        except KeyError:  # no prototype
+            return []
+        return prototype_ctx.patterns
 
     @classmethod
     def load(cls, data: Dict):
@@ -259,14 +271,13 @@ class SyntaxDefinition(object):
         # import contexts
         for ctx_name, ctx_data in data.get("contexts", {}).items():
             ctx = SyntaxContext.from_dict(obj, ctx_data)
+
+            if ctx_name == "prototype":
+                ctx.meta_include_prototype = False
+
             obj.contexts.append(ctx)
             ctx_index = len(obj.contexts) - 1
             obj._context_names[ctx_name] = ctx_index
-
-            if ctx_name == "main":
-                obj._ctx_main = ctx_index
-            if ctx_name == "prototype":
-                obj._ctx_prototype = ctx_index
 
         return obj
 

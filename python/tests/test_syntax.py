@@ -8,7 +8,7 @@ from hlkit.syntax import (
     MatchPattern,
     MatchRegex,
     PopAction,
-    PushAction,
+    PushAction, SyntaxContext,
     SyntaxDefinition,
 )
 
@@ -58,6 +58,7 @@ class TestStructure(object):
         assert isinstance(pat_0, MatchPattern)
         assert isinstance(pat_0.action, PushAction)
         assert pat_0.action._ctxname == "inside-string"
+        assert pat_0.action.context.meta_scope == "string.quoted.double.json"
 
         action_ctx = pat_0.action.context
         assert action_ctx.meta_scope == "string.quoted.double.json"
@@ -69,6 +70,12 @@ class TestStructure(object):
         pat_2 = action_ctx.patterns[-1]
         assert isinstance(pat_2, MatchPattern)
         assert isinstance(pat_2.action, PopAction)
+
+        pat_3 = syndef["array"].patterns[0]
+        assert pat_3.scope == "punctuation.section.sequence.begin.json"
+        assert isinstance(pat_3.action, PushAction)
+        assert isinstance(pat_3.action._synctx, SyntaxContext)
+        assert isinstance(pat_3.action.context, SyntaxContext)
 
     def test_match_regex(self):
         syndef = self._load("Packages/YAML/YAML.sublime-syntax")
