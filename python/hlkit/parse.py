@@ -195,7 +195,7 @@ class ParseState(object):
 
         # execute captures
         if pattern.captures is None:
-            token = ParseResult.Token(snippet, scopes.copy())
+            token = ParseResult.Token(snippet[match.start():], scopes.copy())
             result.tokens.append(token)
             return result
 

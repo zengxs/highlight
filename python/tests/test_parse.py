@@ -62,6 +62,11 @@ class TestParseState(object):
         assert pattern.match._regex == r'"'  # string[0]
         assert pattern.scope == "punctuation.definition.string.begin.json"
 
+        state.push_context(self.syndef["inside-string"])
+        pattern, match = state.find_best_match(r"a\tc\n")
+        assert pattern.scope == "constant.character.escape.json"
+        assert match.group() == r"\t"
+
     def test_next_token(self):
         state = ParseState(self.syndef)
 
@@ -85,9 +90,9 @@ class TestParseState(object):
             "comment.line.double-slash.js",
         ]
 
+    def test_next_token2(self):
         state = ParseState(self.syndef)
-        line = "[12,// comment\n"
-        pos = 0
+        line, pos = "[12,// comment\n", 0
         result = state.parse_next_token(line, start=pos)
         pos += result.chars_count
         assert pos == 1 and result.tokens[0].text == "["
@@ -128,6 +133,53 @@ class TestParseState(object):
             "source.json",
             "meta.sequence.json",
             "comment.line.double-slash.js",
+        ]
+
+        line, pos = '  "a\\tb", ab\n', 0
+        result = state.parse_next_token(line, start=pos)
+        pos += result.chars_count
+        assert pos == 3
+        assert result.tokens[0].text == "  "
+        assert result.tokens[1].text == '"'
+        result = state.parse_next_token(line, start=pos)
+        pos += result.chars_count
+        assert pos == 6
+        assert result.tokens[0].text == "a"
+        assert result.tokens[1].text == r"\t"
+        result = state.parse_next_token(line, start=pos)
+        pos += result.chars_count
+        assert pos == 8
+        assert result.tokens[0].text == "b"
+        assert result.tokens[1].text == '"'
+        result = state.parse_next_token(line, start=pos)
+        pos += result.chars_count
+        assert pos == 9
+        assert result.tokens[0].text == ","
+        result = state.parse_next_token(line, start=pos)
+        pos += result.chars_count
+        assert pos == 11
+        assert result.tokens[0].text == " "
+        assert result.tokens[1].text == "a"
+        assert result.tokens[1].scopes == [
+            "source.json",
+            "meta.sequence.json",
+            "invalid.illegal.expected-sequence-separator.json",
+        ]
+        result = state.parse_next_token(line, start=pos)
+        pos += result.chars_count
+        assert result.tokens[0].text == "b"
+        assert result.tokens[0].scopes == [
+            "source.json",
+            "meta.sequence.json",
+            "invalid.illegal.expected-sequence-separator.json",
+        ]
+        result = state.parse_next_token(line, start=pos)
+        pos += result.chars_count
+        assert pos == len(line)
+        assert result.tokens[0].text == "\n"
+        assert result.tokens[0].scopes == [
+            "source.json",
+            "meta.sequence.json",
         ]
 
     def test_push_context(self):
