@@ -85,6 +85,51 @@ class TestParseState(object):
             "comment.line.double-slash.js",
         ]
 
+        state = ParseState(self.syndef)
+        line = "[12,// comment\n"
+        pos = 0
+        result = state.parse_next_token(line, start=pos)
+        pos += result.chars_count
+        assert pos == 1 and result.tokens[0].text == "["
+        assert result.tokens[0].scopes == [
+            "source.json",
+            "meta.sequence.json",
+            "punctuation.section.sequence.begin.json",
+        ]
+        result = state.parse_next_token(line, start=pos)
+        pos += result.chars_count
+        assert pos == 3 and result.tokens[0].text == "12"
+        assert result.tokens[0].scopes == [
+            "source.json",
+            "meta.sequence.json",
+            "meta.number.integer.decimal.json",
+            "constant.numeric.value.json",
+        ]
+        result = state.parse_next_token(line, start=pos)
+        pos += result.chars_count
+        assert pos == 4 and result.tokens[0].text == ","
+        assert result.tokens[0].scopes == [
+            "source.json",
+            "meta.sequence.json",
+            "punctuation.separator.sequence.json",
+        ]
+        result = state.parse_next_token(line, start=pos)
+        pos += result.chars_count
+        assert pos == len(line)
+        assert result.tokens[0].text == "//"
+        assert result.tokens[0].scopes == [
+            "source.json",
+            "meta.sequence.json",
+            "comment.line.double-slash.js",
+            "punctuation.definition.comment.json",
+        ]
+        assert result.tokens[1].text == " comment\n"
+        assert result.tokens[1].scopes == [
+            "source.json",
+            "meta.sequence.json",
+            "comment.line.double-slash.js",
+        ]
+
     def test_push_context(self):
         state = ParseState(self.syndef)
 

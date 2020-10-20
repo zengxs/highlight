@@ -88,7 +88,7 @@ class ParseState(object):
         level = StateLevel(context)
         self.level_stack.append(level)
 
-    def pop_context(self, context: SyntaxContext):
+    def pop_context(self):
         self.level_stack.pop()
 
     def set_context(self, context: SyntaxContext):
@@ -164,15 +164,13 @@ class ParseState(object):
             result.tokens.append(token)
             return result
 
+        snippet = snippet[: match.end()]
+
         # 未匹配的文本赋予默认 scopes
         if match.start() > 0:
             text = snippet[: match.start()]
             token = ParseResult.Token(text, scopes.copy())
             result.tokens.append(token)
-
-        # pattern scope
-        if pattern.scope is not None:
-            scopes.append(pattern.scope)
 
         # execute action
         if isinstance(pattern.action, PushAction):
@@ -191,6 +189,10 @@ class ParseState(object):
             scopes = self.current_scopes(with_meta_scope=False)
             self.pop_context()
 
+        # pattern scope
+        if pattern.scope is not None:
+            scopes.append(pattern.scope)
+
         # execute captures
         if pattern.captures is None:
             token = ParseResult.Token(snippet, scopes.copy())
@@ -203,7 +205,8 @@ class ParseState(object):
                 continue
 
             start, end = match.span(group_no)
-            print(start, end)
+            if start == end:  # skip empty group
+                continue
             if start > pos:  # 非分组文本
                 text = snippet[pos:start]
                 token = ParseResult.Token(text, scopes.copy())
